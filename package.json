@@ -1,0 +1,62 @@
+{
+  "name": "udec-schedule-api",
+  "version": "1.0.0",
+  "description": "",
+  "license": "ISC",
+  "author": "",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Pixoll/udec-schedule-api.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Pixoll/udec-schedule-api/issues"
+  },
+  "homepage": "https://github.com/Pixoll/udec-schedule-api#readme",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "nest build",
+    "start": "nest start",
+    "dev": "nest start --watch --preserveWatchOutput",
+    "debug": "nest start --debug --watch --preserveWatchOutput",
+    "prod": "node dist/main",
+    "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.1.6",
+    "@nestjs/core": "^11.1.6",
+    "@nestjs/platform-express": "^11.1.6",
+    "@nestjs/swagger": "^11.2.0",
+    "axios": "^1.12.2",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.2",
+    "csv-parse": "^6.1.0",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "node-html-parser": "^7.0.1",
+    "puppeteer": "^24.23.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2",
+    "shelljs": "^0.10.0",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
+  },
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.1",
+    "@eslint/js": "^9.37.0",
+    "@nestjs/cli": "^11.0.10",
+    "@nestjs/schematics": "^11.0.8",
+    "@stylistic/eslint-plugin-ts": "^4.4.1",
+    "@swc/cli": "^0.7.8",
+    "@swc/core": "^1.13.5",
+    "@types/express": "^5.0.3",
+    "@types/node": "^20.19.19",
+    "@types/shelljs": "^0.8.17",
+    "eslint": "^9.37.0",
+    "globals": "^16.4.0",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.46.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}
