@@ -1,5 +1,5 @@
 import { ApiProperty } from "@nestjs/swagger";
-import type { ClassType } from "../lib";
+import { ClassType } from "../lib";
 
 // noinspection JSUnusedGlobalSymbols
 export class SubjectScheduleTBD {
@@ -8,6 +8,10 @@ export class SubjectScheduleTBD {
         enum: [false],
     })
     public declare defined: boolean;
+    @ApiProperty({
+        enum: ClassType,
+        enumName: "ClassType",
+    })
     public declare type?: ClassType;
     public declare group?: number;
 }
