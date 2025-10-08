@@ -14,10 +14,12 @@ export class ScheduleService {
     private readonly engineeringScheduleFilePath: string;
     private readonly cfmScheduleFilePaths: Readonly<Record<CFMEntryType, string>>;
     private readonly scheduleLoaderFns: Array<() => Promise<Record<string, ScheduleFile>>>;
+    private readonly cacheTTL: number;
     private readonly scheduleUpdateTimeoutMs: number;
     private scheduleUpdateTimeout: NodeJS.Timeout | null;
     private updating: boolean;
-    private readonly cachedSchedule: Record<string, Subject>;
+    private lastUpdated: number;
+    private readonly cachedSchedules: Record<string, Subject>;
 
     public constructor() {
         const { PY_PORT } = process.env;
@@ -43,10 +45,12 @@ export class ScheduleService {
             () => this.updateCfmSchedule(),
         ];
 
+        this.cacheTTL = 900_000; // 15 mins
         this.scheduleUpdateTimeoutMs = 3_600_000; // 1 hour
         this.scheduleUpdateTimeout = null;
         this.updating = false;
-        this.cachedSchedule = {};
+        this.lastUpdated = 0;
+        this.cachedSchedules = {};
 
         if (!existsSync(this.scheduleFilesDir)) {
             mkdirSync(this.scheduleFilesDir, { recursive: true });
@@ -69,7 +73,14 @@ export class ScheduleService {
         if (this.updating) {
             return {
                 updating: true,
-                schedules: this.cachedSchedule,
+                schedules: this.cachedSchedules,
+            };
+        }
+
+        if (this.lastUpdated + this.cacheTTL > Date.now()) {
+            return {
+                updating: false,
+                schedules: this.cachedSchedules,
             };
         }
 
@@ -89,7 +100,7 @@ export class ScheduleService {
                 for (const schedule of schedules) {
                     // eslint-disable-next-line max-depth
                     for (const [key, value] of Object.entries(schedule.subjects)) {
-                        this.cachedSchedule[key] = value;
+                        this.cachedSchedules[key] = value;
                     }
                 }
             } catch (error) {
@@ -97,14 +108,17 @@ export class ScheduleService {
             }
         }
 
-        this.logger.log(`Set schedule update for ${new Date(Date.now() + this.scheduleUpdateTimeoutMs).toISOString()}`);
+        this.lastUpdated = Date.now();
+
+        const updateDate = new Date(this.lastUpdated + this.scheduleUpdateTimeoutMs).toISOString();
+        this.logger.log(`Set schedule update for ${updateDate}`);
 
         this.updating = false;
         this.scheduleUpdateTimeout = setTimeout(() => this.updateSchedules(), this.scheduleUpdateTimeoutMs);
 
         return {
             updating: false,
-            schedules: this.cachedSchedule,
+            schedules: this.cachedSchedules,
         };
     }
 
