@@ -1,193 +1,153 @@
+import type { Logger } from "@nestjs/common";
 import axios from "axios";
-import { Agent } from "node:https";
-import { pdfToCsv, type PdfToCsvOptions } from "./pdf-to-csv";
-import { ClassDay, ClassType, type ScheduleFile, type Subject, type SubjectSchedule } from "./types";
+import { ClassDay, ClassType, type ScheduleFile, type Subject, type SubjectScheduleDefined } from "./types";
 
-// eslint-disable-next-line max-len
-const subjectScheduleRegex = /(?:[[|l(]?(?<type>[TPL])(?: ?G(?<group>\d))?[\]|l)])? *(?:(?<day>Lu|Ma|Mi|Ju|Vi|Sa|Do) ?(?<blocks>[\d ,]+) ?\(?(?<classroom>[^)]+)\)|(?<tbd>Coordinar?(?: con)? docentes?))/gi;
+const BASE_API_URL = "https://ofivirtualfi.udec.cl/intranet-horarios/api/horario";
+const ONE_HOUR_IN_MS = 3_600_000;
 
-const scheduleApiUrl = "https://ofivirtualfi.udec.cl/api/file/documents/"
-    + "?limit=1"
-    + "&searchFields=resourceType,mimeType"
-    + "&search=scheduleSubjects,application/pdf"
-    + "&sort=id_file+desc"
-    + "&exactMatching=true";
+const apiClient = axios.create({
+    baseURL: BASE_API_URL,
+});
 
-export async function updateEngineeringSchedule(
-    scheduleFile: ScheduleFile,
-    options: Pick<PdfToCsvOptions, "logger" | "pdfFilesDir" | "pyApiUrl">
-): Promise<ScheduleFile> {
-    const fileDocument = await axios.get<DocumentFileResponse>(scheduleApiUrl, {
-        httpsAgent: new Agent({ rejectUnauthorized: false }),
-    }).then(r => r.data);
+enum DayNumber {
+    LU = 1,
+    MA,
+    MI,
+    JU,
+    VI,
+    SA,
+    DO,
+}
 
-    if (!fileDocument.success) {
-        throw new Error("Could not fetch latest subject information:", { cause: fileDocument });
-    }
+const dayNumberToClassDay = {
+    [DayNumber.LU]: ClassDay.LU,
+    [DayNumber.MA]: ClassDay.MA,
+    [DayNumber.MI]: ClassDay.MI,
+    [DayNumber.JU]: ClassDay.JU,
+    [DayNumber.VI]: ClassDay.VI,
+    [DayNumber.SA]: ClassDay.SA,
+    [DayNumber.DO]: ClassDay.DO,
+} as const satisfies Record<DayNumber, ClassDay>;
 
-    const pdfFile = fileDocument.data.data[0];
-    if (!pdfFile) {
-        throw new Error("Could not find PDF file:", { cause: fileDocument });
-    }
-
-    const fileTimestamp = new Date(pdfFile.updatedAt ?? pdfFile.createdAt).getTime();
-    if (fileTimestamp === scheduleFile.updatedAt) {
+export async function updateEngineeringSchedule(scheduleFile: ScheduleFile, options: Options): Promise<ScheduleFile> {
+    if (scheduleFile.updatedAt + ONE_HOUR_IN_MS >= Date.now()) {
         return scheduleFile;
     }
 
-    const csv = await pdfToCsv(`https://ofivirtualfi.udec.cl/api/file/downloadFile/${pdfFile.fileName}`, {
-        ...options,
-        ignoreSSL: true,
-        mergeRows: true,
-    });
-    const subjects = await getSubjects(csv);
+    const { logger } = options;
+
+    logger.debug("Fetching engineering subjects list");
+
+    const subjectsResponse = await apiClient.get<SubjectsResponse>("/").then(r => r.data);
+
+    if (!subjectsResponse.data) {
+        throw new Error("Could not fetch latest subjects list:", { cause: subjectsResponse.error ?? "unknown" });
+    }
+
+    let count = 1;
+
+    const subjects: Record<string, Subject> = {};
+
+    for (const responseSubject of subjectsResponse.data.info.subjects) {
+        for (const responseSection of responseSubject.sections) {
+            const key = `${responseSubject.id_subject}-${responseSection.section_number}`;
+
+            const subject: Subject = {
+                code: responseSubject.id_subject,
+                name: responseSubject.name,
+                section: responseSection.section_number,
+                schedule: [],
+            };
+
+            subjects[key] = subject;
+
+            if (count === 1 || count % 50 === 0) {
+                logger.debug(`Fetching engineering subjects schedules (#${count} for now)`);
+            }
+
+            count++;
+
+            if (!responseSubject.definedSchedule) {
+                continue;
+            }
+
+            const sectionScheduleResponse = await apiClient
+                .get<SubjectScheduleResponse>(`/asignatura/${responseSection.id_section}`)
+                .then(r => r.data);
+
+            if (!sectionScheduleResponse.data) {
+                const reason = sectionScheduleResponse.error ?? "unknown";
+                logger.error(`Could not fetch subject schedule for ${logger} (#${count}). Reason: ${reason}`);
+                continue;
+            }
+
+            for (const responseSchedule of sectionScheduleResponse.data) {
+                const day = dayNumberToClassDay[responseSchedule.dia];
+                const block = Math.floor(responseSchedule.horaInit / 100) - 7;
+
+                const previousBlock = subject.schedule.find((s): s is SubjectScheduleDefined =>
+                    s.defined && s.type === ClassType.T && s.classroom === responseSchedule.aula && s.day === day
+                );
+
+                // eslint-disable-next-line max-depth
+                if (!previousBlock) {
+                    subject.schedule.push({
+                        defined: true,
+                        type: ClassType.T,
+                        classroom: responseSchedule.aula,
+                        day: day,
+                        blocks: [block],
+                    });
+                } else if (!previousBlock.blocks.includes(block)) {
+                    previousBlock.blocks.push(block);
+                }
+            }
+        }
+    }
+
+    logger.debug("Done fetching engineering subjects schedules");
 
     return {
-        updatedAt: fileTimestamp,
+        updatedAt: Date.now(),
         subjects,
     };
 }
 
-async function getSubjects(csv: string[][]): Promise<Record<string, Subject>> {
-    const subjectRows = csv.filter((row): row is CsvRow => row.length === 10 && /^(\d{6})+$/m.test(row[0] ?? ""));
-    const subjects: Record<string, Subject> = {};
-
-    await Promise.all(subjectRows.map<Promise<void>>(async (row) => {
-        const codes = row[0].split("\n").map(c => +c);
-        const sections = row[1].split("\n");
-        const name = row[2].split("\n");
-        const credits = row[3].split("\n").map(n => +n).filter(n => !Number.isNaN(n));
-        const schedule = parseSubjectSchedule(row[8]);
-
-        if (credits.length === 0) {
-            const { data } = await axios.get<string>(`https://alumnos.udec.cl/?q=node/25&codasignatura=${codes[0]}`);
-            const creditsString = data.match(/cr[eé]ditos *(?:<\/strong>)? *: *(\d+)/i)?.[1];
-
-            if (creditsString) {
-                credits.push(+creditsString);
-            }
-        }
-
-        for (let i = 0; i < codes.length; i++) {
-            const code = codes[i]!;
-            const splitSections = codes.length === sections.length
-                ? sections[i]!.trim().split(/\s*-\s*/)
-                : sections;
-
-            for (const section of splitSections) {
-                const key = `${code}-${section}`;
-                if (key in subjects) continue;
-
-                subjects[key] = {
-                    code,
-                    name: name[i] ?? name[0]!,
-                    credits: credits[i] ?? credits[0]!,
-                    section: +section,
-                    schedule,
-                };
-            }
-        }
-    }));
-
-    return subjects;
-}
-
-function parseSubjectSchedule(text: string): SubjectSchedule[] {
-    const scheduleMatches = text.replaceAll("\n", " ").matchAll(subjectScheduleRegex);
-    const schedule: SubjectSchedule[] = [];
-
-    let lastScheduleIndex = -1;
-    for (const match of scheduleMatches) {
-        const groups = match.groups as unknown as SubjectScheduleMatchGroups;
-
-        let type = groups.type ? ClassType[groups.type.toUpperCase()] : undefined;
-        const group = groups.group ? +groups.group : undefined;
-
-        let i = lastScheduleIndex;
-        while (i >= 0 && !type) {
-            type = schedule[i--]?.type;
-        }
-
-        if (groups.tbd !== undefined) {
-            schedule.push({
-                defined: false,
-                type,
-                group,
-            });
-            lastScheduleIndex++;
-            continue;
-        }
-
-        if (type === undefined) {
-            console.error("Could not resolve schedule from", groups);
-            continue;
-        }
-
-        const day = ClassDay[groups.day.toUpperCase()];
-        const blockStrings = groups.blocks?.match(/\d+/g) as string[] | null;
-        const blocks = blockStrings?.flatMap(n => +n > 13 ? n.split("").map(m => +m) : +n) ?? [];
-        const classroom = groups.classroom.trim();
-
-        schedule.push({
-            defined: true,
-            type,
-            group,
-            day,
-            blocks,
-            classroom,
-        });
-        lastScheduleIndex++;
-    }
-
-    return schedule;
-}
-
-type SubjectScheduleMatchGroups = {
-    type: Lowercase<keyof typeof ClassType> | undefined;
-    group: string | undefined;
-    day: Lowercase<keyof typeof ClassDay>;
-    blocks: string | undefined;
-    classroom: string;
-    tbd: undefined;
-} | {
-    type: Lowercase<keyof typeof ClassType> | undefined;
-    group: string | undefined;
-    day: undefined;
-    blocks: undefined;
-    classroom: undefined;
-    tbd: string;
+export type Options = {
+    logger: Logger;
 };
 
-type CsvRow = [string, string, string, string, string, string, string, string, string, string];
-
-type DocumentFileResponse = {
-    success: true;
+type SubjectsResponse = {
     data: {
-        totalItems: number;
-        totalPages: number;
-        currentPage: number;
-        data: DocumentFile[];
-    };
-} | {
-    success: false;
-    errorCode: number;
-    error: string;
+        info: {
+            subjects: ResponseSubject[];
+            period: string;
+        };
+    } | null;
+    error: string | null;
 };
 
-type DocumentFile = {
-    id_file: number;
-    originalName: string;
-    fileName: string;
-    displayName: string | null;
-    mimeType: string;
-    size: number;
-    encoding: string;
-    filePath: string;
-    destination: string;
-    resourceId: number | null;
-    resourceType: string;
-    visibility: string | null;
-    createdAt: string;
-    updatedAt: string | null;
-    deletedAt: string | null;
+type ResponseSubject = {
+    definedSchedule: boolean;
+    id_subject: number;
+    depto: number;
+    name: string;
+    sections: ResponseSubjectSection[];
+};
+
+type ResponseSubjectSection = {
+    section_number: number;
+    id_section: number;
+};
+
+type SubjectScheduleResponse = {
+    data: ResponseSubjectSchedule[];
+    error: string | null;
+};
+
+type ResponseSubjectSchedule = {
+    "aula": string;
+    "dia": DayNumber;
+    "horaInit": number;
+    "horaFin": number;
 };

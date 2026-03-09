@@ -3,7 +3,14 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import path from "node:path";
 import { clearTimeout } from "node:timers";
 import type { Schedule } from "./entities/schedule.entity";
-import { CFMEntryType, type ScheduleFile, type Subject, updateCfmSchedule, updateEngineeringSchedule } from "./lib";
+import {
+    CFMEntryType,
+    type ScheduleFile,
+    type Subject,
+    updateCfmSchedule,
+    updateEngineeringSchedule,
+    updateEngineeringScheduleOld,
+} from "./lib";
 
 @Injectable()
 export class ScheduleService {
@@ -122,12 +129,26 @@ export class ScheduleService {
         };
     }
 
+    // @ts-expect-error: testing new one
+    private async updateEngineeringScheduleOld(): Promise<Record<"engineering", ScheduleFile>> {
+        const oldFile = this.readScheduleFile(this.engineeringScheduleFilePath);
+        const newFile = await updateEngineeringScheduleOld(oldFile, {
+            logger: this.logger,
+            pdfFilesDir: this.pdfFilesDir,
+            pyApiUrl: this.pyApiUrl,
+        });
+
+        if (newFile.updatedAt > oldFile.updatedAt) {
+            this.saveScheduleFile(this.engineeringScheduleFilePath, newFile);
+        }
+
+        return { engineering: newFile };
+    }
+
     private async updateEngineeringSchedule(): Promise<Record<"engineering", ScheduleFile>> {
         const oldFile = this.readScheduleFile(this.engineeringScheduleFilePath);
         const newFile = await updateEngineeringSchedule(oldFile, {
             logger: this.logger,
-            pdfFilesDir: this.pdfFilesDir,
-            pyApiUrl: this.pyApiUrl,
         });
 
         if (newFile.updatedAt > oldFile.updatedAt) {
