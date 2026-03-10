@@ -351,10 +351,15 @@ function prepareSubjectSchedule(row: string[], sections: number, entryType: CFME
     }
 
     for (let i = 0; i < daysP.length; i++) {
-        const day = daysP[i]!;
-        const block = blocksP[i]!;
+        const day = daysP[i];
+        const block = blocksP[i];
+        const chunk = chunks[i];
 
-        for (const classroom of chunks[i]!) {
+        if (!day || !block || !chunk) {
+            continue;
+        }
+
+        for (const classroom of chunk) {
             schedule.push({
                 type: ClassType.P,
                 day,
