@@ -3,14 +3,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import path from "node:path";
 import { clearTimeout } from "node:timers";
 import type { Schedule } from "./entities/schedule.entity";
-import {
-    CFMEntryType,
-    type ScheduleFile,
-    type Subject,
-    updateCfmSchedule,
-    updateEngineeringSchedule,
-    updateEngineeringScheduleOld,
-} from "./lib";
+import { CFMEntryType, type ScheduleFile, type Subject, updateCfmSchedule, updateEngineeringSchedule } from "./lib";
 
 @Injectable()
 export class ScheduleService {
@@ -129,29 +122,15 @@ export class ScheduleService {
         };
     }
 
-    // @ts-expect-error: testing new one
-    private async updateEngineeringScheduleOld(): Promise<Record<"engineering", ScheduleFile>> {
+    private async updateEngineeringSchedule(): Promise<Record<"engineering", ScheduleFile>> {
         const oldFile = this.readScheduleFile(this.engineeringScheduleFilePath);
-        const newFile = await updateEngineeringScheduleOld(oldFile, {
+        const newFile = await updateEngineeringSchedule(oldFile, {
             logger: this.logger,
             pdfFilesDir: this.pdfFilesDir,
             pyApiUrl: this.pyApiUrl,
         });
 
-        if (newFile.updatedAt > oldFile.updatedAt) {
-            this.saveScheduleFile(this.engineeringScheduleFilePath, newFile);
-        }
-
-        return { engineering: newFile };
-    }
-
-    private async updateEngineeringSchedule(): Promise<Record<"engineering", ScheduleFile>> {
-        const oldFile = this.readScheduleFile(this.engineeringScheduleFilePath);
-        const newFile = await updateEngineeringSchedule(oldFile, {
-            logger: this.logger,
-        });
-
-        if (newFile.updatedAt > oldFile.updatedAt) {
+        if (newFile.updatedAt !== oldFile.updatedAt) {
             this.saveScheduleFile(this.engineeringScheduleFilePath, newFile);
         }
 
@@ -170,7 +149,7 @@ export class ScheduleService {
         });
 
         for (const [key, file] of Object.entries(newFiles)) {
-            if (file.updatedAt > oldFiles[key].updatedAt) {
+            if (file.updatedAt !== oldFiles[key].updatedAt) {
                 this.saveScheduleFile(this.cfmScheduleFilePaths[key], file);
             }
         }

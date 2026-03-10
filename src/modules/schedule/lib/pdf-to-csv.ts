@@ -4,6 +4,7 @@ import { parse as parseCsv } from "csv-parse/sync";
 import { rmSync, writeFileSync } from "node:fs";
 import { Agent } from "node:https";
 import path from "node:path";
+import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import { launch } from "puppeteer";
 import XLSX, { type Range } from "xlsx";
 
@@ -23,6 +24,21 @@ export async function pdfToCsv(pdfUrl: string, options: PdfToCsvOptions): Promis
             httpsAgent: new Agent({ rejectUnauthorized: false }),
         },
     }).then(r => r.data);
+
+    const document = await getDocument(new Uint8Array(pdfArrayBuffer)).promise;
+
+    if (document.numPages === 1) {
+        const page = await document.getPage(1);
+        const text = await page.getTextContent();
+        const content = text.items.map(i => "str" in i ? i.str : "").join(" ").toLowerCase();
+        const isPreliminary = content.includes("preliminar") && content.includes("simulador");
+
+        if (isPreliminary) {
+            logger.warn("Schedule PDF is preliminary.");
+            return [];
+        }
+    }
+
     writeFileSync(pdfFilePath, Buffer.from(pdfArrayBuffer));
 
     logger.log(`Uploading [${id}] ${pdfUrl}`);
