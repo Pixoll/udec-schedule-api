@@ -9,6 +9,9 @@ import XLSX, { type Range } from "xlsx";
 
 let pdfId = 0;
 
+const convertFileSelector
+    = "#app > div > div > div > div > div > div > div > div > div > div:nth-child(2) > button:nth-last-child(1)";
+
 export async function pdfToCsv(pdfUrl: string, options: PdfToCsvOptions): Promise<Csv> {
     const { logger, pdfFilesDir, pyApiUrl } = options;
     const id = pdfId++;
@@ -26,17 +29,43 @@ export async function pdfToCsv(pdfUrl: string, options: PdfToCsvOptions): Promis
     using browser = await launch({
         // TODO not safe on linux, should find a workaround
         args: ["--no-sandbox", "--disable-setuid-sandbox"],
+        headless: false,
     });
     using smallPdfPage = await browser.newPage();
     await smallPdfPage.goto("https://smallpdf.com/pdf-to-excel", { timeout: 0 });
-    const fileInputElement = await smallPdfPage.waitForSelector("input[type=file]");
+    const fileInputElement = await smallPdfPage.waitForSelector("input[type=file]").catch(() => null);
 
     if (!fileInputElement) {
         throw new Error("Could not find file input element on page.");
     }
 
     await fileInputElement.uploadFile(pdfFilePath);
-    const downloadFileElement = await smallPdfPage.waitForSelector("a[download]", { timeout: 0 });
+
+    const buttonType = await Promise.race([
+        smallPdfPage.waitForSelector("a[download]", { timeout: 0 })
+            .then(() => "download" as const)
+            .catch(() => null),
+        smallPdfPage.waitForSelector(convertFileSelector, { timeout: 0 })
+            .then(() => "convert" as const)
+            .catch(() => null),
+    ]);
+
+    if (!buttonType) {
+        throw new Error("Could not find file download or convert button element on page.");
+    }
+
+    if (buttonType === "convert") {
+        const convertFileButton = await smallPdfPage.$(convertFileSelector);
+
+        if (!convertFileButton) {
+            throw new Error("Could not find file convert button element on page.");
+        }
+
+        await convertFileButton.click();
+        await smallPdfPage.waitForSelector("a[download]", { timeout: 0 }).catch(() => null);
+    }
+
+    const downloadFileElement = await smallPdfPage.$("a[download]");
     rmSync(pdfFilePath);
     logger.log(`Uploaded [${id}]`);
 
