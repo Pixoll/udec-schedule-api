@@ -45,6 +45,7 @@ export async function pdfToCsv(pdfUrl: string, options: PdfToCsvOptions): Promis
     using browser = await launch({
         // TODO not safe on linux, should find a workaround
         args: ["--no-sandbox", "--disable-setuid-sandbox"],
+        headless: false,
     });
     using smallPdfPage = await browser.newPage();
     await smallPdfPage.goto("https://smallpdf.com/pdf-to-excel", { timeout: 0 });
@@ -76,6 +77,7 @@ export async function pdfToCsv(pdfUrl: string, options: PdfToCsvOptions): Promis
             throw new Error("Could not find file convert button element on page.");
         }
 
+        await new Promise(resolve => setTimeout(resolve, 1000));
         await convertFileButton.click();
         await smallPdfPage.waitForSelector("a[download]", { timeout: 0 }).catch(() => null);
     }
