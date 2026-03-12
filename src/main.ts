@@ -1,8 +1,11 @@
+import { config as dotenv } from "dotenv";
+
+dotenv({ quiet: true });
+
 import { Logger, ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import type { NestExpressApplication } from "@nestjs/platform-express";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
-import { config as dotenv } from "dotenv";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import shell from "shelljs";
@@ -13,8 +16,6 @@ import { LoggingInterceptor } from "./interceptors/logging.interceptor";
 import { LowercaseQueryKeysPipe } from "./pipes/lowercase-query-keys.pipe";
 
 void async function () {
-    dotenv({ quiet: true });
-
     const { FRONTEND_ORIGIN, NODE_ENV, GLOBAL_PREFIX = "api", TS_PORT: PORT = 3000 } = process.env;
 
     if (!FRONTEND_ORIGIN) {

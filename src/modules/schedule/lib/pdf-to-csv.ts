@@ -10,6 +10,9 @@ import XLSX, { type Range } from "xlsx";
 
 let pdfId = 0;
 
+const headless = process.env.PUPPETTER_HEADLESS === "shell" ? "shell"
+    : process.env.PUPPETTER_HEADLESS === undefined ? undefined
+        : !!process.env.PUPPETTER_HEADLESS;
 const convertFileSelector
     = "#app > div > div > div > div > div > div > div > div > div > div:nth-child(2) > button:nth-last-child(1)";
 
@@ -45,7 +48,7 @@ export async function pdfToCsv(pdfUrl: string, options: PdfToCsvOptions): Promis
     using browser = await launch({
         // TODO not safe on linux, should find a workaround
         args: ["--no-sandbox", "--disable-setuid-sandbox"],
-        headless: false,
+        headless,
     });
     using smallPdfPage = await browser.newPage();
     await smallPdfPage.goto("https://smallpdf.com/pdf-to-excel", { timeout: 0 });
