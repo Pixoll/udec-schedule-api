@@ -82,6 +82,7 @@ export async function pdfToCsv(pdfUrl: string, options: PdfToCsvOptions): Promis
 
         await new Promise(resolve => setTimeout(resolve, 1000));
         await convertFileButton.click();
+        await convertFileButton.click();
         await smallPdfPage.waitForSelector("a[download]", { timeout: 0 }).catch(() => null);
     }
 
